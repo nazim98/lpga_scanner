@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>LPGA Barcode Scanner (Upload Members)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
+    header {
+      background: #003366; color: white; padding: 12px 16px;
+      display: flex; align-items: center; justify-content: center; position: relative;
+    }
+    header h1 { margin: 0; font-size: 1.15rem; letter-spacing: 0.4px; }
+    header button.back {
+      position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+      background: white; color: #003366; border: none; padding: 8px 12px;
+      cursor: pointer; border-radius: 6px; font-weight: bold;
+    }
+    .container { max-width: 1000px; margin: 18px auto; background: white; padding: 18px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+    .top-row { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    .left-controls, .right-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .file-input { position: relative; overflow: hidden; border-radius:6px; background:#003366; color:white; padding:8px 12px; cursor:pointer; }
+    .file-input input[type=file] { position:absolute; left:0; top:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+    button, .small-btn { background:#003366; color:white; padding:8px 12px; border:none; cursor:pointer; border-radius:6px; font-weight:600; }
+    .small-btn { padding:6px 10px; font-size:0.95rem; }
+    button.ghost { background:transparent; color:#003366; border:1px solid #cfd8e3; }
+    .meta { color:#333; font-size:0.95rem; }
+    .member-count { font-weight:700; color:#003366; margin-left:6px; }
+    input#barcodeInput { width:100%; padding:12px; font-size:1.02rem; margin:12px 0; box-sizing:border-box; border:1px solid #ddd; border-radius:8px; }
+    .info-box { background:#eef5ff; padding:10px; border-radius:6px; display:none; margin-bottom:12px; }
+    .info-box span { display:block; font-weight:700; }
+
+    /* ✅ STATUS COLORS */
+    .status-active { color: #1a7f37; font-weight: bold; } /* green */
+    .status-absent { color: #d32f2f; font-weight: bold; } /* red */
+    .status-defaulter { color: #ff9800; font-weight: bold; } /* orange */
+    .status-pending_briefing { color: #2196f3; font-weight: bold; } /* blue */
+    .status-suspend_disciplinary { color: #9c27b0; font-weight: bold; } /* purple */
+    .status-suspended { color: #616161; font-weight: bold; } /* gray */
+    .status-unknown { color: #555; font-weight: bold; }
+
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    table, th, td { border:1px solid #e2e6ea; }
+    th, td { padding:8px; text-align:left; }
+    th { background:#003366; color:white; position:sticky; top:0; z-index:2; }
+    tr:nth-child(even) { background:#fbfcfd; }
+    .delete-btn { background:#ff4d4f; color:white; border:none; padding:6px 10px; border-radius:6px; cursor:pointer; font-weight:600; }
+    .delete-btn:hover { background:#e04141; }
+    .footer-note { margin-top:10px; color:#555; font-size:0.92rem; }
+    .small-muted { font-size:0.9rem; color:#666; }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="back" onclick="goBack()">⬅ Back</button>
+    <h1 id="pageTitle">🏌️‍♂️ LPGA Barcode Scanner</h1>
+  </header>
+
+  <div class="container">
+    <div class="top-row">
+      <div class="left-controls">
+        <label class="file-input">
+          📂 Upload Member List
+          <input id="fileUpload" type="file" accept=".xlsx,.xls,.csv" />
+        </label>
+        <button class="small-btn" id="loadFromStorageBtn">🔁 Load saved members</button>
+        <button class="small-btn ghost" id="clearMembersBtn">🗑 Clear members</button>
+        <span class="meta">Members loaded: <span id="memberCount" class="member-count">0</span></span>
+      </div>
+
+      <div class="right-controls">
+        <button id="exportBtn">📤 Export Attendance</button>
+        <button id="downloadMembersBtn" class="small-btn ghost">⬇ Export Members JSON</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="small-muted">
+      Tip: Upload your Excel. Expected columns include <code>Member_No</code>, <code>Name</code>, <code>Principal_Member_No</code>, <code>Status</code>.
+    </div>
+
+    <hr style="margin:14px 0" />
+
+    <input id="barcodeInput" placeholder="Scan or paste barcode data (e.g. N|IF-OC208|1754...|*) — press Enter" />
+
+    <div class="info-box" id="memberInfo">
+      <span id="infoName"></span>
+      <span id="infoPrincipal"></span>
+      <span id="infoStatus"></span>
+    </div>
+
+    <table aria-label="scan history">
+      <thead>
+        <tr>
+          <th>Member No</th>
+          <th>Name</th>
+          <th>Principal Member No</th>
+          <th>Principal Name</th>
+          <th>Status</th>
+          <th>Time</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="historyBody"></tbody>
+    </table>
+
+    <div class="footer-note">
+      Each LPGA Day has its own scan record (saved locally). Upload overwrites in-memory list; saved members persist in browser storage.
+    </div>
+  </div>
+
+  <script>
+  const selectedDay = localStorage.getItem('selectedDay') || 'LPGA DAY 1';
+  document.getElementById('pageTitle').textContent = `🏌️‍♂️ ${selectedDay} — Barcode Scanner`;
+
+  const MEMBERS_KEY = 'lpga_members_v1';
+  const ATT_KEY = `lpga_attendance_${selectedDay.replace(/\s+/g,'_')}`;
+
+  const fileUpload = document.getElementById('fileUpload');
+  const memberCountEl = document.getElementById('memberCount');
+  const barcodeInput = document.getElementById('barcodeInput');
+  const memberInfo = document.getElementById('memberInfo');
+  const infoName = document.getElementById('infoName');
+  const infoPrincipal = document.getElementById('infoPrincipal');
+  const infoStatus = document.getElementById('infoStatus');
+  const historyBody = document.getElementById('historyBody');
+
+  let members = {};
+  let attendance = JSON.parse(localStorage.getItem(ATT_KEY) || '[]');
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function beep(frequency=880, duration=0.08, type='sine'){ 
+    try{
+      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.type=type;o.frequency.value=frequency;
+      g.gain.value=0.12;o.connect(g);g.connect(audioCtx.destination);
+      o.start();setTimeout(()=>o.stop(),duration*1000);
+    }catch(e){}
+  }
+  function successBeep(){ beep(1200,0.09); }
+  function errorBeep(){ beep(300,0.12,'square'); }
+
+  function goBack(){ window.location.href='index.html'; }
+  function updateMemberCount(){ memberCountEl.textContent = Object.keys(members).length.toLocaleString(); }
+  function saveMembersToStorage(){ try{ localStorage.setItem(MEMBERS_KEY, JSON.stringify(members)); }catch(e){ alert('⚠️ Cannot save members: storage full.'); } }
+  function loadMembersFromStorage(){ const raw=localStorage.getItem(MEMBERS_KEY); if(!raw)return false; try{members=JSON.parse(raw)||{};updateMemberCount();return true;}catch(e){return false;} }
+  function clearMembers(){ if(!confirm('Clear loaded members?'))return; members={};localStorage.removeItem(MEMBERS_KEY);updateMemberCount();alert('Members cleared.'); }
+  function saveAttendance(){ localStorage.setItem(ATT_KEY, JSON.stringify(attendance)); }
+
+  function extractMemberCode(raw){
+    if(!raw) return '';
+    raw=raw.trim();
+    const parts = raw.split('|').map(s=>s.trim());
+    return parts.length>=2 ? parts[1] : raw;
+  }
+
+  // ✅ Updated status color mapping
+  function statusClass(status) {
+    if (!status) return '';
+    const s = status.trim().toLowerCase();
+    if (s === 'active') return 'status-active';
+    if (s === 'absent') return 'status-absent';
+    if (s === 'defaulter') return 'status-defaulter';
+    if (s === 'pending briefing' || s === 'pending_briefing') return 'status-pending_briefing';
+    if (s === 'suspend due to disciplinary' || s === 'suspended due to disciplinary') return 'status-suspend_disciplinary';
+    if (s === 'suspended') return 'status-suspended';
+    return 'status-unknown';
+  }
+
+  function showMemberInfo(name, principal, status){
+    infoName.textContent=`👤 Name: ${name||'—'}`;
+    infoPrincipal.textContent=`👑 Principal: ${principal||'—'}`;
+    infoStatus.textContent=`📌 Status: ${status||'Unknown'}`;
+    infoStatus.className=statusClass(status);
+    memberInfo.style.display='block';
+  }
+
+  function addAttendance(memberNo, fullName, principalMemberNo, principalName, principalStatus){
+    const rec={id:Date.now()+Math.random()*1000000,memberNo,fullName,principalMemberNo,principalName,principalStatus,timestamp:new Date().toISOString()};
+    attendance.push(rec); saveAttendance(); renderHistory();
+  }
+
+  function deleteRecord(id){ if(!confirm('Delete this record?'))return; attendance=attendance.filter(r=>r.id!==id); saveAttendance(); renderHistory(); }
+
+  function renderHistory(){
+    historyBody.innerHTML='';
+    const sorted = attendance.slice().sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    for(const r of sorted){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td>${r.memberNo}</td>
+        <td>${r.fullName}</td>
+        <td>${r.principalMemberNo}</td>
+        <td>${r.principalName}</td>
+        <td class="${statusClass(r.principalStatus)}">${r.principalStatus}</td>
+        <td>${new Date(r.timestamp).toLocaleString()}</td>
+        <td><button class="delete-btn" onclick="deleteRecord(${r.id})">Delete</button></td>`;
+      historyBody.appendChild(tr);
+    }
+  }
+
+  fileUpload.addEventListener('change', (ev)=>{
+    const f=ev.target.files[0]; if(!f)return;
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:'binary'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const json=XLSX.utils.sheet_to_json(ws,{defval:''});
+        if(!json.length){alert('No rows found.');return;}
+        const loaded={};
+        const headerKeys=Object.keys(json[0]).map(k=>k.toLowerCase().replace(/\s+/g,'_'));
+        function findKey(names){for(const n of names){const idx=headerKeys.indexOf(n);if(idx>=0)return Object.keys(json[0])[idx];}return null;}
+        const memberKey=findKey(['member_no','memberno','member','member_code']);
+        const nameKey=findKey(['name','full_name','fullname']);
+        const principalKey=findKey(['principal_member_no','principal','principal_member']);
+        const statusKey=findKey(['status','member_status']);
+        if(!memberKey){alert('Missing Member No column.');return;}
+        for(const row of json){
+          const memberNo=(row[memberKey]||'').toString().trim();
+          if(!memberNo)continue;
+          const fullName=nameKey?(row[nameKey]||'').toString().trim():'';
+          const principalMemberNo=principalKey?(row[principalKey]||'').toString().trim():memberNo;
+          const status=statusKey?(row[statusKey]||'').toString().trim():'';
+          loaded[memberNo]={memberNo,fullName,principalMemberNo,principalName:'',principalStatus:status};
+        }
+        Object.values(loaded).forEach(m=>{
+          const p=m.principalMemberNo;
+          m.principalName=(loaded[p]&&loaded[p].fullName)?loaded[p].fullName:p;
+        });
+        members=loaded; saveMembersToStorage(); updateMemberCount();
+        alert(`Loaded ${Object.keys(members).length.toLocaleString()} members.`);
+      }catch(err){alert('Failed to parse file.');}
+      finally{fileUpload.value='';}
+    };
+    reader.readAsBinaryString(f);
+  });
+
+  barcodeInput.addEventListener('keypress',(e)=>{if(e.key==='Enter')processScanInput();});
+  function processScanInput(){
+    const raw=barcodeInput.value.trim(); barcodeInput.value='';
+    if(!raw)return;
+    if(Object.keys(members).length===0){alert('No members loaded.'); errorBeep(); return;}
+    const code=extractMemberCode(raw);
+    const member=members[code];
+    if(!member){
+      if(confirm(`Member "${code}" not found.\nRecord as temporary?`)){
+        addAttendance(code,'', '', '', '');
+        showMemberInfo('(Unknown)','(Unknown)','Unknown');
+        errorBeep();
+      }
+      return;
+    }
+    const princ=member.principalMemberNo;
+    const pObj=members[princ]||null;
+    const princName=pObj?(pObj.fullName||princ):(member.principalName||princ);
+    const princStatus=pObj?(pObj.principalStatus||member.principalStatus):(member.principalStatus||'');
+    addAttendance(member.memberNo, member.fullName, princ, princName, princStatus);
+    showMemberInfo(member.fullName, princName, princStatus);
+    successBeep();
+  }
+
+  document.getElementById('loadFromStorageBtn').addEventListener('click',()=>{if(loadMembersFromStorage())alert(`Loaded ${Object.keys(members).length} members.`);else alert('No saved members found.');});
+  document.getElementById('clearMembersBtn').addEventListener('click',clearMembers);
+
+  document.getElementById('exportBtn').addEventListener('click',()=>{
+    if(!attendance.length){alert('No attendance records.');return;}
+    const rows=attendance.slice().sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp)).map(r=>({
+      'Member No':r.memberNo,
+      'Full Name':r.fullName,
+      'Principal Member No':r.principalMemberNo,
+      'Principal Name':r.principalName,
+      'Principal Status':r.principalStatus,
+      'Timestamp':new Date(r.timestamp).toLocaleString()
+    }));
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,selectedDay);
+    const filename=`${selectedDay.replace(/\s+/g,'_')}_Attendance_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'_')}.xlsx`;
+    XLSX.writeFile(wb,filename);
+  });
+
+  document.getElementById('downloadMembersBtn').addEventListener('click',()=>{
+    const blob=new Blob([JSON.stringify(members,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`lpga_members_${selectedDay.replace(/\s+/g,'_')}.json`;
+    a.click();
+  });
+
+  (function init(){loadMembersFromStorage();renderHistory();barcodeInput.focus();})();
+  window.deleteRecord=deleteRecord;
+  </script>
+</body>
+</html>

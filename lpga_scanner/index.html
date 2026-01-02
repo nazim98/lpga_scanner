@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LPGA Day Selection</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #003366, #0055aa);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: white;
+    }
+    .box {
+      background: white;
+      color: #003366;
+      padding: 30px;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+      max-width: 400px;
+      width: 100%;
+    }
+    h1 {
+      margin-top: 0;
+      margin-bottom: 20px;
+    }
+    select, button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      font-size: 1em;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      background: #003366;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #0055aa;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>🏌️‍♂️ LPGA Day Selection</h1>
+    <select id="daySelect">
+      <option value="">-- Select LPGA Day --</option>
+      <option>LPGA DAY 1</option>
+      <option>LPGA DAY 2</option>
+      <option>LPGA DAY 3</option>
+      <option>LPGA DAY 4</option>
+    </select>
+    <button onclick="proceed()">Continue ➡️</button>
+  </div>
+
+  <script>
+    function proceed() {
+      const day = document.getElementById('daySelect').value;
+      if (!day) {
+        alert('Please select a day!');
+        return;
+      }
+      localStorage.setItem('selectedDay', day);
+      window.location.href = 'scanner.html';
+    }
+  </script>
+</body>
+</html>
